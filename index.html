@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>DTMF</title>
+
+<style>
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    touch-action: manipulation;
+}
+
+body {
+    background: black;
+    cursor: pointer;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.fullscreen-img {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    object-fit: cover;
+    transition: opacity 0.3s ease;
+    z-index: 1;
+}
+
+.flash {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: white;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+    z-index: 10;
+}
+
+.tap-msg {
+    position: fixed;
+    bottom: 30px;
+    left: 0;
+    width: 100%;
+    text-align: center;
+    color: white;
+    font-size: clamp(12px, 3vw, 16px);
+    opacity: 0.8;
+    padding: 0 20px;
+    z-index: 2;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.7);
+}
+
+.loading {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: white;
+    font-size: 14px;
+    opacity: 0.7;
+    z-index: 2;
+}
+
+/* Prevenir zoom en iOS */
+@media (max-width: 768px) {
+    input, textarea {
+        font-size: 16px;
+    }
+}
+
+/* Optimizar para tablets */
+@media (min-width: 769px) and (max-width: 1024px) {
+    .tap-msg {
+        bottom: 40px;
+        font-size: 18px;
+    }
+}
+
+/* Optimizar para desktop */
+@media (min-width: 1025px) {
+    body {
+        cursor: pointer;
+    }
+    
+    .tap-msg {
+        bottom: 50px;
+        font-size: 20px;
+    }
+}
+</style>
+</head>
+
+<body>
+
+<img id="mainImage" class="fullscreen-img" alt="DTMF Image" loading="eager">
+<div class="flash" id="flash"></div>
+<div class="tap-msg" id="msg">Toca o haz clic para comenzar</div>
+<div class="loading" id="loading">Cargando...</div>
+
+<audio id="bgMusic" loop preload="metadata">
+    <source src="audio/musica.mp3" type="audio/mpeg">
+    <source src="audio/musica.ogg" type="audio/ogg">
+</audio>
+<audio id="flashSound" preload="auto">
+    <source src="audio/flash.mp3" type="audio/mpeg">
+    <source src="audio/flash.ogg" type="audio/ogg">
+</audio>
+
+<script>
+// Configuración
+const formats = ["jpg", "jpeg", "png", "webp"];
+const finalImages = [];
+const img = document.getElementById("mainImage");
+const flash = document.getElementById("flash");
+const music = document.getElementById("bgMusic");
+const flashSound = document.getElementById("flashSound");
+const msg = document.getElementById("msg");
+const loading = document.getElementById("loading");
+
+let currentIndex = 0;
+let started = false;
+let isChanging = false;
+let imagesLoaded = false;
+
+// Detectar compatibilidad de audio
+function checkAudioSupport() {
+    const audio = document.createElement('audio');
+    const mp3Support = audio.canPlayType('audio/mpeg');
+    const oggSupport = audio.canPlayType('audio/ogg');
+    
+    // Si no hay soporte para audio, ocultar elementos relacionados
+    if (!mp3Support && !oggSupport) {
+        console.warn('Audio no soportado en este navegador');
+    }
+}
+
+// Precargar imágenes para mejor rendimiento
+async function loadAndDetectImages() {
+    loading.style.display = 'block';
+    
+    for (let i = 1; i <= 5; i++) {
+        let imageFound = false;
+        
+        for (let ext of formats) {
+            const path = `img/img${i}.${ext}`;
+            try {
+                const exists = await imageExists(path);
+                if (exists) {
+                    finalImages.push(path);
+                    imageFound = true;
+                    
+                    // Precargar imagen
+                    const preloadImg = new Image();
+                    preloadImg.src = path;
+                    
+                    break;
+                }
+            } catch (error) {
+                console.warn(`Error al cargar imagen ${path}:`, error);
+            }
+        }
+        
+        // Si no se encontró ninguna imagen con los formatos comunes
+        if (!imageFound) {
+            console.warn(`No se encontró img${i} en formatos compatibles`);
+        }
+    }
+    
+    loading.style.display = 'none';
+    imagesLoaded = true;
+    
+    // Mostrar primera imagen si hay disponibles
+    if (finalImages.length > 0) {
+        img.src = finalImages[0];
+        img.style.opacity = "1";
+    } else {
+        msg.textContent = "No se encontraron imágenes";
+        msg.style.color = "#ff6b6b";
+    }
+}
+
+function imageExists(src) {
+    return new Promise((resolve) => {
+        const testImg = new Image();
+        testImg.onload = () => resolve(true);
+        testImg.onerror = () => resolve(false);
+        testImg.src = src;
+        // Timeout para evitar esperas infinitas
+        setTimeout(() => resolve(false), 2000);
+    });
+}
+
+function flashEffect() {
+    flash.style.opacity = "1";
+    setTimeout(() => {
+        flash.style.opacity = "0";
+    }, 120);
+}
+
+function changeImage() {
+    if (finalImages.length === 0 || isChanging) return;
+    
+    isChanging = true;
+    currentIndex = (currentIndex + 1) % finalImages.length;
+    img.style.opacity = "0";
+    
+    setTimeout(() => {
+        img.src = finalImages[currentIndex];
+        img.style.opacity = "1";
+        isChanging = false;
+    }, 120);
+}
+
+async function startExperience(event) {
+    // Prevenir comportamiento por defecto en móviles
+    if (event) {
+        event.preventDefault();
+        
+        // En móviles, prevenir múltiples toques rápidos
+        if (event.type === 'touchstart') {
+            event.stopPropagation();
+        }
+    }
+    
+    if (!imagesLoaded) return;
+    
+    flashEffect();
+    changeImage();
+    
+    // Reproducir sonido
+    try {
+        if (flashSound.readyState >= 2) {
+            flashSound.currentTime = 0;
+            await flashSound.play();
+        }
+    } catch (error) {
+        console.warn('No se pudo reproducir el sonido:', error);
+    }
+    
+    if (!started) {
+        // Intentar iniciar música de fondo
+        try {
+            // Para navegadores móviles, necesitamos interacción del usuario
+            music.volume = 0.6;
+            await music.play();
+            
+            // Ocultar mensaje y mostrar controles en desktop
+            msg.style.display = "none";
+            started = true;
+            
+            // En iOS, mantener el audio activo
+            if (typeof window.webkitAudioContext !== 'undefined') {
+                // Crear contexto de audio para iOS
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioContext.createOscillator();
+                oscillator.connect(audioContext.destination);
+                oscillator.start(0);
+                oscillator.stop(0.001);
+            }
+        } catch (error) {
+            console.warn('Autoplay bloqueado:', error);
+            msg.textContent = "Toca de nuevo para activar el audio";
+            msg.style.display = "block";
+        }
+    }
+}
+
+// Inicialización
+function init() {
+    checkAudioSupport();
+    loadAndDetectImages();
+    
+    // Configurar eventos
+    const eventConfig = { passive: true };
+    
+    // Evento para clic/tap
+    document.addEventListener("click", startExperience, eventConfig);
+    
+    // Evento táctil optimizado
+    document.addEventListener("touchstart", startExperience, { 
+        passive: false,
+        capture: true 
+    });
+    
+    // Prevenir gestos de zoom en móviles
+    document.addEventListener('gesturestart', (e) => {
+        e.preventDefault();
+    });
+    
+    // Manejar tecla espacio para accesibilidad
+    document.addEventListener('keydown', (e) => {
+        if (e.code === 'Space' || e.key === ' ') {
+            startExperience(e);
+        }
+    });
+    
+    // Manejar cambios de visibilidad (pestaña en segundo plano)
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden && started) {
+            music.pause();
+        } else if (!document.hidden && started) {
+            music.play().catch(e => console.warn('No se pudo reanudar música:', e));
+        }
+    });
+    
+    // Prevenir acciones contextuales en móviles
+    document.addEventListener('contextmenu', (e) => {
+        if (window.innerWidth <= 768) {
+            e.preventDefault();
+        }
+    });
+}
+
+// Iniciar cuando el DOM esté listo
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+} else {
+    init();
+}
+</script>
+
+</body>
+</html>
